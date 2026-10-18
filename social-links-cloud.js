@@ -2,28 +2,35 @@
   'use strict';
   const config = window.SOCIAL_LINKS_CONFIG;
   if (!config) return;
-  let frame, frameOrigin = '', accessToken = sessionStorage.getItem('social-links-google-token') || '';
+  let frame, frameOrigin = '', frameReady, accessToken = sessionStorage.getItem('social-links-google-token') || '';
   const pending = new Map();
   const imageCache = new Map();
   const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 
   function getFrame() {
-    if (frame) return Promise.resolve(frame);
-    return new Promise((resolve, reject) => {
-      frame = document.createElement('iframe');
-      frame.title = '資料同步服務';
-      frame.setAttribute('aria-hidden', 'true');
-      frame.style.cssText = 'position:fixed;width:1px;height:1px;left:-10px;bottom:0;border:0;opacity:0;pointer-events:none';
-      frame.src = config.apiUrl;
-      const timeout = setTimeout(() => reject(new Error('資料服務連線逾時')), 15000);
+    if (frameReady) return frameReady;
+    frameReady = new Promise((resolve, reject) => {
+      const currentFrame = frame = document.createElement('iframe');
+      currentFrame.title = '資料同步服務';
+      currentFrame.setAttribute('aria-hidden', 'true');
+      currentFrame.style.cssText = 'position:fixed;width:1px;height:1px;left:-10px;bottom:0;border:0;opacity:0;pointer-events:none';
+      currentFrame.src = config.apiUrl;
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', onReady);
+        currentFrame.remove();
+        frame = null;
+        frameReady = null;
+        reject(new Error('資料服務連線逾時'));
+      }, 15000);
       const onReady = event => {
         const validOrigin = event.origin === new URL(config.apiUrl).origin || event.origin.endsWith('.googleusercontent.com');
-        if (!validOrigin || event.source !== frame.contentWindow || event.data?.type !== 'SOCIAL_LINKS_BRIDGE_READY') return;
-        frameOrigin = event.origin; clearTimeout(timeout); window.removeEventListener('message', onReady); resolve(frame);
+        if (!validOrigin || event.source !== currentFrame.contentWindow || event.data?.type !== 'SOCIAL_LINKS_BRIDGE_READY') return;
+        frameOrigin = event.origin; clearTimeout(timeout); window.removeEventListener('message', onReady); resolve(currentFrame);
       };
       window.addEventListener('message', onReady);
-      document.body.append(frame);
+      document.body.append(currentFrame);
     });
+    return frameReady;
   }
 
   async function api(action, payload = {}) {
@@ -80,7 +87,7 @@
   async function readImage(id) {
     if (imageCache.has(id)) return imageCache.get(id);
     const data = await api('getImage', { id });
-    const source = `data:${data.mimeType};base64,${data.base64}`;
+    const source = 'data:' + data.mimeType + ';base64,' + data.base64;
     imageCache.set(id, source);
     return source;
   }
@@ -98,12 +105,12 @@
         if (String(source).startsWith('drive:')) { newImages.push(source); continue; }
         if (uploaded.has(source)) { newImages.push(uploaded.get(source)); continue; }
         const response = await fetch(source);
-        if (!response.ok) throw new Error(`無法讀取舊截圖：${source}`);
+        if (!response.ok) throw new Error('無法讀取舊截圖：' + source);
         const blob = await response.blob();
         const name = String(source).startsWith('data:') ? 'screenshot.jpg' : (String(source).split('/').pop().split('?')[0] || 'screenshot.jpg');
         const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
         const result = await uploadFile(file);
-        const reference = `drive:${result.id}`;
+        const reference = 'drive:' + result.id;
         uploaded.set(source, reference); newImages.push(reference);
       }
       record.images = newImages; record.image = '';
@@ -132,8 +139,8 @@
           if (data.action !== google.picker.Action.PICKED) return;
           try {
             const picked = await Promise.all(data.docs.map(async doc => {
-              const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(doc.id)}?alt=media`, { headers: { Authorization: `Bearer ${accessToken}` } });
-              if (!response.ok) throw new Error(`讀取「${doc.name}」失敗`);
+              const response = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(doc.id) + '?alt=media', { headers: { Authorization: 'Bearer ' + accessToken } });
+              if (!response.ok) throw new Error('讀取「' + doc.name + '」失敗');
               const blob = await response.blob();
               const file = new File([blob], doc.name, { type: doc.mimeType || blob.type });
               return { file, originalId: doc.id, name: doc.name };
