@@ -60,7 +60,7 @@
     if (root.matches?.('[data-drive-id]')) images.push(root);
     images.push(...(root.querySelectorAll?.('[data-drive-id]') || []));
     images.forEach(async image => {
-      if (image.dataset.imageReady) return;
+      if (!image.dataset.driveId || image.dataset.imageReady) return;
       image.dataset.imageReady = '1';
       try { image.src = await SLCloud.readImage(image.dataset.driveId); }
       catch { image.alt = '圖片目前無法載入'; }
