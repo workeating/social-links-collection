@@ -5,7 +5,7 @@
   let frame, frameOrigin = '', frameReady, accessToken = sessionStorage.getItem('social-links-google-token') || '';
   const pending = new Map();
   const imageCache = new Map();
-  const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+  const makeId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()); function appWindow() { let target = frame?.contentWindow; try { for (let depth = 0; depth < 3 && target?.frames?.length; depth++) target = target.frames[0]; } catch (_) {} return target; }
 
   function getFrame() {
     if (frameReady) return frameReady;
@@ -24,7 +24,7 @@
       }, 15000);
       const onReady = event => {
         const validOrigin = event.origin === new URL(config.apiUrl).origin || event.origin.endsWith('.googleusercontent.com');
-        if (!validOrigin || event.source !== currentFrame.contentWindow || event.data?.type !== 'SOCIAL_LINKS_BRIDGE_READY') return;
+        let sourceMatches = event.source === currentFrame.contentWindow;        try {          let nested = currentFrame.contentWindow;          for (let depth = 0; depth < 3 && nested?.frames?.length; depth++) { nested = nested.frames[0]; sourceMatches ||= event.source === nested; }        } catch (_) {}        if (!validOrigin || !sourceMatches || event.data?.type !== 'SOCIAL_LINKS_BRIDGE_READY') return;
         frameOrigin = event.origin; clearTimeout(timeout); window.removeEventListener('message', onReady); resolve(currentFrame);
       };
       window.addEventListener('message', onReady);
@@ -39,12 +39,12 @@
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { pending.delete(id); reject(new Error('資料服務回應逾時')); }, 30000);
       pending.set(id, { resolve, reject, timer });
-      frame.contentWindow.postMessage({ type: 'SOCIAL_LINKS_API', id, action, accessToken, payload }, frameOrigin);
+      appWindow().postMessage({ type: 'SOCIAL_LINKS_API', id, action, accessToken, payload }, frameOrigin);
     });
   }
 
   window.addEventListener('message', event => {
-    if (event.origin !== frameOrigin || event.source !== frame?.contentWindow || event.data?.type !== 'SOCIAL_LINKS_RESULT') return;
+    if (event.origin !== frameOrigin || event.source !== appWindow() || event.data?.type !== 'SOCIAL_LINKS_RESULT') return;
     const item = pending.get(event.data.id);
     if (!item) return;
     clearTimeout(item.timer); pending.delete(event.data.id);
